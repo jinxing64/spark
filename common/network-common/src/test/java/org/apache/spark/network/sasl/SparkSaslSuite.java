@@ -17,9 +17,7 @@
 
 package org.apache.spark.network.sasl;
 
-import static org.junit.Assert.*;
-import static org.mockito.Mockito.*;
-
+import javax.security.sasl.SaslException;
 import java.io.File;
 import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
@@ -30,10 +28,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
-import javax.security.sasl.SaslException;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.ByteStreams;
@@ -45,6 +42,12 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelOutboundHandlerAdapter;
 import io.netty.channel.ChannelPromise;
 import org.junit.Test;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.Mockito.*;
 
 import org.apache.spark.network.TestUtils;
 import org.apache.spark.network.TransportContext;
@@ -259,7 +262,7 @@ public class SparkSaslSuite {
     try {
       TransportConf conf = new TransportConf("shuffle", new MapConfigProvider(testConf));
       StreamManager sm = mock(StreamManager.class);
-      when(sm.getChunk(anyLong(), anyInt())).thenAnswer(invocation ->
+      when(sm.getChunk(anyLong(), anyString())).thenAnswer(invocation ->
           new FileSegmentManagedBuffer(conf, file, 0, file.length()));
 
       RpcHandler rpcHandler = mock(RpcHandler.class);
@@ -279,13 +282,13 @@ public class SparkSaslSuite {
         response.get().retain();
         lock.countDown();
         return null;
-      }).when(callback).onSuccess(anyInt(), any(ManagedBuffer.class));
+      }).when(callback).onSuccess(anyString(), any(ManagedBuffer.class));
 
-      ctx.client.fetchChunk(0, 0, callback);
+      ctx.client.fetchChunk(0, "0", callback);
       lock.await(10, TimeUnit.SECONDS);
 
-      verify(callback, times(1)).onSuccess(anyInt(), any(ManagedBuffer.class));
-      verify(callback, never()).onFailure(anyInt(), any(Throwable.class));
+      verify(callback, times(1)).onSuccess(anyString(), any(ManagedBuffer.class));
+      verify(callback, never()).onFailure(anyString(), any(Throwable.class));
 
       byte[] received = ByteStreams.toByteArray(response.get().createInputStream());
       assertTrue(Arrays.equals(data, received));

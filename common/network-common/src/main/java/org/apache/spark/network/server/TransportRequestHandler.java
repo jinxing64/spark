@@ -25,23 +25,13 @@ import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.spark.network.util.NettyUtils.getRemoteAddress;
+
 import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.buffer.NioManagedBuffer;
 import org.apache.spark.network.client.RpcResponseCallback;
 import org.apache.spark.network.client.TransportClient;
-import org.apache.spark.network.protocol.ChunkFetchRequest;
-import org.apache.spark.network.protocol.ChunkFetchFailure;
-import org.apache.spark.network.protocol.ChunkFetchSuccess;
-import org.apache.spark.network.protocol.Encodable;
-import org.apache.spark.network.protocol.OneWayMessage;
-import org.apache.spark.network.protocol.RequestMessage;
-import org.apache.spark.network.protocol.RpcFailure;
-import org.apache.spark.network.protocol.RpcRequest;
-import org.apache.spark.network.protocol.RpcResponse;
-import org.apache.spark.network.protocol.StreamFailure;
-import org.apache.spark.network.protocol.StreamRequest;
-import org.apache.spark.network.protocol.StreamResponse;
-import static org.apache.spark.network.util.NettyUtils.getRemoteAddress;
+import org.apache.spark.network.protocol.*;
 
 /**
  * A handler that processes requests from clients and writes chunk data back. Each handler is
@@ -122,7 +112,7 @@ public class TransportRequestHandler extends MessageHandler<RequestMessage> {
     try {
       streamManager.checkAuthorization(reverseClient, req.streamChunkId.streamId);
       streamManager.registerChannel(channel, req.streamChunkId.streamId);
-      buf = streamManager.getChunk(req.streamChunkId.streamId, req.streamChunkId.chunkIndex);
+      buf = streamManager.getChunk(req.streamChunkId.streamId, req.streamChunkId.chunkId);
     } catch (Exception e) {
       logger.error(String.format("Error opening block %s for request from %s",
         req.streamChunkId, getRemoteAddress(channel)), e);

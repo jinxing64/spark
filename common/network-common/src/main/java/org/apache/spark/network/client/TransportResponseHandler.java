@@ -29,6 +29,8 @@ import io.netty.channel.Channel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import static org.apache.spark.network.util.NettyUtils.getRemoteAddress;
+
 import org.apache.spark.network.protocol.ChunkFetchFailure;
 import org.apache.spark.network.protocol.ChunkFetchSuccess;
 import org.apache.spark.network.protocol.ResponseMessage;
@@ -38,7 +40,6 @@ import org.apache.spark.network.protocol.StreamChunkId;
 import org.apache.spark.network.protocol.StreamFailure;
 import org.apache.spark.network.protocol.StreamResponse;
 import org.apache.spark.network.server.MessageHandler;
-import static org.apache.spark.network.util.NettyUtils.getRemoteAddress;
 import org.apache.spark.network.util.TransportFrameDecoder;
 
 /**
@@ -104,7 +105,7 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
    */
   private void failOutstandingRequests(Throwable cause) {
     for (Map.Entry<StreamChunkId, ChunkReceivedCallback> entry : outstandingFetches.entrySet()) {
-      entry.getValue().onFailure(entry.getKey().chunkIndex, cause);
+      entry.getValue().onFailure(entry.getKey().chunkId, cause);
     }
     for (Map.Entry<Long, RpcResponseCallback> entry : outstandingRpcs.entrySet()) {
       entry.getValue().onFailure(cause);
@@ -150,7 +151,7 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
         resp.body().release();
       } else {
         outstandingFetches.remove(resp.streamChunkId);
-        listener.onSuccess(resp.streamChunkId.chunkIndex, resp.body());
+        listener.onSuccess(resp.streamChunkId.chunkId, resp.body());
         resp.body().release();
       }
     } else if (message instanceof ChunkFetchFailure) {
@@ -161,7 +162,7 @@ public class TransportResponseHandler extends MessageHandler<ResponseMessage> {
           resp.streamChunkId, getRemoteAddress(channel), resp.errorString);
       } else {
         outstandingFetches.remove(resp.streamChunkId);
-        listener.onFailure(resp.streamChunkId.chunkIndex, new ChunkFetchFailureException(
+        listener.onFailure(resp.streamChunkId.chunkId, new ChunkFetchFailureException(
           "Failure while fetching " + resp.streamChunkId + ": " + resp.errorString));
       }
     } else if (message instanceof RpcResponse) {
