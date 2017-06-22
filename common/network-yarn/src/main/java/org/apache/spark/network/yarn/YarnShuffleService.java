@@ -163,7 +163,13 @@ public class YarnShuffleService extends AuxiliaryService {
       registeredExecutorFile = initRecoveryDb(RECOVERY_FILE_NAME);
 
       TransportConf transportConf = new TransportConf("shuffle", new HadoopConfigProvider(conf));
-      blockHandler = new ExternalShuffleBlockHandler(transportConf, registeredExecutorFile);
+      blockHandler = new ExternalShuffleBlockHandler(transportConf, registeredExecutorFile,
+        new ExternalShuffleBlockHandler.MemoryUsage() {
+          @Override
+          public long getMemoryUsage() {
+            return shuffleServer.nettyMemoryUsage();
+          }
+        }, transportConf.nettyMemWaterMark());
 
       // If authentication is enabled, set up the shuffle server to use a
       // special RPC handler that filters out unauthenticated fetch requests

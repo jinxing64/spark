@@ -137,11 +137,9 @@ public class OneForOneBlockFetcherSuite {
     doAnswer(invocationOnMock -> {
       BlockTransferMessage message = BlockTransferMessage.Decoder.fromByteBuffer(
         (ByteBuffer) invocationOnMock.getArguments()[0]);
-      RpcResponseCallback callback = (RpcResponseCallback) invocationOnMock.getArguments()[1];
-      callback.onSuccess(new StreamHandle(123, blocks.size()).toByteBuffer());
       assertEquals(new OpenBlocks("app-id", "exec-id", blockIds), message);
-      return null;
-    }).when(client).sendRpc(any(ByteBuffer.class), any(RpcResponseCallback.class));
+      return new StreamHandle(123, blocks.size()).toByteBuffer();
+    }).when(client).sendRpcSync(any(ByteBuffer.class), anyLong());
 
     // Respond to each chunk request with a single buffer from our blocks array.
     AtomicInteger expectedChunkIndex = new AtomicInteger(0);

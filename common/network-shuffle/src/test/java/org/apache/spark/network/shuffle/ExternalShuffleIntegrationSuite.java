@@ -86,7 +86,13 @@ public class ExternalShuffleIntegrationSuite {
     dataContext0.insertSortShuffleData(0, 0, exec0Blocks);
 
     conf = new TransportConf("shuffle", MapConfigProvider.EMPTY);
-    handler = new ExternalShuffleBlockHandler(conf, null);
+    handler = new ExternalShuffleBlockHandler(conf, null,
+      new ExternalShuffleBlockHandler.MemoryUsage() {
+        @Override
+        public long getMemoryUsage() {
+          return 0;
+        }
+      }, 1);
     TransportContext transportContext = new TransportContext(conf, handler);
     server = transportContext.createServer();
   }

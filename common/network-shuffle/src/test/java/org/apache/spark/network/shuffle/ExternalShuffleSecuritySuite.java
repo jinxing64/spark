@@ -45,7 +45,13 @@ public class ExternalShuffleSecuritySuite {
   @Before
   public void beforeEach() throws IOException {
     TransportContext context =
-      new TransportContext(conf, new ExternalShuffleBlockHandler(conf, null));
+      new TransportContext(conf, new ExternalShuffleBlockHandler(conf, null,
+        new ExternalShuffleBlockHandler.MemoryUsage() {
+          @Override
+          public long getMemoryUsage() {
+            return 0;
+          }
+        }, 1));
     TransportServerBootstrap bootstrap = new SaslServerBootstrap(conf,
         new TestSecretKeyHolder("my-app-id", "secret"));
     this.server = context.createServer(Arrays.asList(bootstrap));

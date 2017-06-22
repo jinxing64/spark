@@ -25,7 +25,6 @@ import java.util.concurrent.TimeUnit;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -38,6 +37,7 @@ import org.slf4j.LoggerFactory;
 import org.apache.spark.network.TransportContext;
 import org.apache.spark.network.util.IOMode;
 import org.apache.spark.network.util.NettyUtils;
+import org.apache.spark.network.util.PooledByteBufAllocatorWithMetrics;
 import org.apache.spark.network.util.TransportConf;
 
 /**
@@ -53,6 +53,7 @@ public class TransportServer implements Closeable {
 
   private ServerBootstrap bootstrap;
   private ChannelFuture channelFuture;
+  private PooledByteBufAllocatorWithMetrics allocator;
   private int port = -1;
 
   /**
@@ -92,7 +93,7 @@ public class TransportServer implements Closeable {
       NettyUtils.createEventLoop(ioMode, conf.serverThreads(), conf.getModuleName() + "-server");
     EventLoopGroup workerGroup = bossGroup;
 
-    PooledByteBufAllocator allocator = NettyUtils.createPooledByteBufAllocator(
+    allocator = NettyUtils.createPooledByteBufAllocator(
       conf.preferDirectBufs(), true /* allowCache */, conf.serverThreads());
 
     bootstrap = new ServerBootstrap()
@@ -148,4 +149,9 @@ public class TransportServer implements Closeable {
     }
     bootstrap = null;
   }
+
+  public long nettyMemoryUsage() {
+    return allocator.onHeapUsage() + allocator.offHeapUsage();
+  }
+
 }

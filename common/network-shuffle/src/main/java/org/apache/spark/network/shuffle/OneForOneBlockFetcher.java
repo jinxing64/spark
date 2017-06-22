@@ -31,12 +31,12 @@ import org.slf4j.LoggerFactory;
 import org.apache.spark.network.buffer.FileSegmentManagedBuffer;
 import org.apache.spark.network.buffer.ManagedBuffer;
 import org.apache.spark.network.client.ChunkReceivedCallback;
-import org.apache.spark.network.client.RpcResponseCallback;
 import org.apache.spark.network.client.StreamCallback;
 import org.apache.spark.network.client.TransportClient;
 import org.apache.spark.network.server.OneForOneStreamManager;
 import org.apache.spark.network.shuffle.protocol.BlockTransferMessage;
 import org.apache.spark.network.shuffle.protocol.OpenBlocks;
+import org.apache.spark.network.shuffle.protocol.OpenBlocksFailed;
 import org.apache.spark.network.shuffle.protocol.StreamHandle;
 import org.apache.spark.network.util.TransportConf;
 
@@ -99,45 +99,66 @@ public class OneForOneBlockFetcher {
     }
   }
 
+  public void start() {
+    // Retry when fail to "open blocks" on shuffle service.
+    boolean beganFetch = false;
+    for (int i = 0; i < transportConf.shuffleServiceMaxTries() && !beganFetch; i++) {
+      if (!beginFetch()) {
+        try {
+          Thread.sleep(transportConf.openBlocksWaitTimeMs());
+        } catch (InterruptedException e) {
+          logger.warn("Interrupted when open blocks on shuffle service.", e);
+          break;
+        }
+      } else {
+        beganFetch = true;
+      }
+    }
+    if (!beganFetch) {
+      throw new RuntimeException("Failed to start block fetches.");
+    }
+  }
+
   /**
    * Begins the fetching process, calling the listener with every block fetched.
-   * The given message will be serialized with the Java serializer, and the RPC must return a
-   * {@link StreamHandle}. We will send all fetch requests immediately, without throttling.
+   * The given message will be serialized with the Java serializer. The RPC will return a
+   * {@link StreamHandle} if open blocks successfully. We will send all fetch requests immediately,
+   * without throttling. The RPC will return a {@link OpenBlocksFailed} when failed to open blocks.
    */
-  public void start() {
+  public boolean beginFetch() {
     if (blockIds.length == 0) {
       throw new IllegalArgumentException("Zero-sized blockIds array");
     }
+    try {
+      ByteBuffer rsp = client.sendRpcSync(openMessage.toByteBuffer(),
+        transportConf.shuffleServiceTimeoutMs());
+      BlockTransferMessage blockTransferMessage = BlockTransferMessage.Decoder.fromByteBuffer(rsp);
+      if (blockTransferMessage instanceof StreamHandle) {
+        streamHandle = (StreamHandle) blockTransferMessage;
+        logger.trace("Successfully opened blocks {}, preparing to fetch chunks.", streamHandle);
 
-    client.sendRpc(openMessage.toByteBuffer(), new RpcResponseCallback() {
-      @Override
-      public void onSuccess(ByteBuffer response) {
-        try {
-          streamHandle = (StreamHandle) BlockTransferMessage.Decoder.fromByteBuffer(response);
-          logger.trace("Successfully opened blocks {}, preparing to fetch chunks.", streamHandle);
-
-          // Immediately request all chunks -- we expect that the total size of the request is
-          // reasonable due to higher level chunking in [[ShuffleBlockFetcherIterator]].
-          for (int i = 0; i < streamHandle.numChunks; i++) {
-            if (shuffleFiles != null) {
-              client.stream(OneForOneStreamManager.genStreamChunkId(streamHandle.streamId, i),
-                new DownloadCallback(shuffleFiles[i], i));
-            } else {
-              client.fetchChunk(streamHandle.streamId, i, chunkCallback);
-            }
+        // Immediately request all chunks -- we expect that the total size of the request is
+        // reasonable due to higher level chunking in [[ShuffleBlockFetcherIterator]].
+        for (int i = 0; i < streamHandle.numChunks; i++) {
+          if (shuffleFiles != null) {
+            client.stream(OneForOneStreamManager.genStreamChunkId(streamHandle.streamId, i),
+              new DownloadCallback(shuffleFiles[i], i));
+          } else {
+            client.fetchChunk(streamHandle.streamId, i, chunkCallback);
           }
-        } catch (Exception e) {
-          logger.error("Failed while starting block fetches after success", e);
-          failRemainingBlocks(blockIds, e);
         }
+        return true;
+      } else if (blockTransferMessage instanceof OpenBlocksFailed){
+        logger.warn("Failed to open blocks: ", blockTransferMessage.toString());
+        return false;
+      } else {
+        throw new RuntimeException("Unknown response from shuffle service.");
       }
-
-      @Override
-      public void onFailure(Throwable e) {
-        logger.error("Failed while starting block fetches", e);
-        failRemainingBlocks(blockIds, e);
-      }
-    });
+    } catch (Exception e) {
+      logger.error("Failed while starting block fetches", e);
+      failRemainingBlocks(blockIds, e);
+      return false;
+    }
   }
 
   /** Invokes the "onBlockFetchFailure" callback for every listed block id. */

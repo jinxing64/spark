@@ -102,14 +102,14 @@ public class NettyUtils {
    * but released by the executor thread rather than the event loop thread. Those thread-local
    * caches actually delay the recycling of buffers, leading to larger memory usage.
    */
-  public static PooledByteBufAllocator createPooledByteBufAllocator(
+  public static PooledByteBufAllocatorWithMetrics createPooledByteBufAllocator(
       boolean allowDirectBufs,
       boolean allowCache,
       int numCores) {
     if (numCores == 0) {
       numCores = Runtime.getRuntime().availableProcessors();
     }
-    return new PooledByteBufAllocator(
+    return new PooledByteBufAllocatorWithMetrics(
       allowDirectBufs && PlatformDependent.directBufferPreferred(),
       Math.min(getPrivateStaticField("DEFAULT_NUM_HEAP_ARENA"), numCores),
       Math.min(getPrivateStaticField("DEFAULT_NUM_DIRECT_ARENA"), allowDirectBufs ? numCores : 0),

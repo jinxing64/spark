@@ -39,8 +39,10 @@ import org.apache.spark.util.ThreadUtils
  */
 private[mesos] class MesosExternalShuffleBlockHandler(
     transportConf: TransportConf,
-    cleanerIntervalS: Long)
-  extends ExternalShuffleBlockHandler(transportConf, null) with Logging {
+    cleanerIntervalS: Long,
+    memoryUsage: ExternalShuffleBlockHandler.MemoryUsage,
+    memWaterMark: Long)
+  extends ExternalShuffleBlockHandler(transportConf, null, memoryUsage, memWaterMark) with Logging {
 
   ThreadUtils.newDaemonSingleThreadScheduledExecutor("shuffle-cleaner-watcher")
     .scheduleAtFixedRate(new CleanerThread(), 0, cleanerIntervalS, TimeUnit.SECONDS)
@@ -116,7 +118,10 @@ private[mesos] class MesosExternalShuffleService(conf: SparkConf, securityManage
   protected override def newShuffleBlockHandler(
       conf: TransportConf): ExternalShuffleBlockHandler = {
     val cleanerIntervalS = this.conf.get(SHUFFLE_CLEANER_INTERVAL_S)
-    new MesosExternalShuffleBlockHandler(conf, cleanerIntervalS)
+    new MesosExternalShuffleBlockHandler(conf, cleanerIntervalS,
+      new ExternalShuffleBlockHandler.MemoryUsage {
+        override def getMemoryUsage: Long = server.nettyMemoryUsage()
+      }, conf.nettyMemWaterMark())
   }
 }
 

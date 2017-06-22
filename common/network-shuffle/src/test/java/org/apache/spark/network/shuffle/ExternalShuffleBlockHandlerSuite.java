@@ -35,10 +35,10 @@ import org.apache.spark.network.buffer.NioManagedBuffer;
 import org.apache.spark.network.client.RpcResponseCallback;
 import org.apache.spark.network.client.TransportClient;
 import org.apache.spark.network.server.OneForOneStreamManager;
-import org.apache.spark.network.server.RpcHandler;
 import org.apache.spark.network.shuffle.protocol.BlockTransferMessage;
 import org.apache.spark.network.shuffle.protocol.ExecutorShuffleInfo;
 import org.apache.spark.network.shuffle.protocol.OpenBlocks;
+import org.apache.spark.network.shuffle.protocol.OpenBlocksFailed;
 import org.apache.spark.network.shuffle.protocol.RegisterExecutor;
 import org.apache.spark.network.shuffle.protocol.StreamHandle;
 import org.apache.spark.network.shuffle.protocol.UploadBlock;
@@ -48,13 +48,20 @@ public class ExternalShuffleBlockHandlerSuite {
 
   OneForOneStreamManager streamManager;
   ExternalShuffleBlockResolver blockResolver;
-  RpcHandler handler;
+  ExternalShuffleBlockHandler handler;
 
   @Before
   public void beforeEach() {
     streamManager = mock(OneForOneStreamManager.class);
     blockResolver = mock(ExternalShuffleBlockResolver.class);
-    handler = new ExternalShuffleBlockHandler(streamManager, blockResolver);
+    ExternalShuffleBlockHandler.MemoryUsage fakeMemoryUsage =
+      new ExternalShuffleBlockHandler.MemoryUsage() {
+        @Override
+        public long getMemoryUsage() {
+          return 10;
+        }
+      };
+    handler = new ExternalShuffleBlockHandler(streamManager, blockResolver, fakeMemoryUsage, 100);
   }
 
   @Test
@@ -146,5 +153,22 @@ public class ExternalShuffleBlockHandlerSuite {
 
     verify(callback, never()).onSuccess(any(ByteBuffer.class));
     verify(callback, never()).onFailure(any(Throwable.class));
+  }
+
+  @Test
+  public void testOpenBlocksFailed() {
+    RpcResponseCallback callback = mock(RpcResponseCallback.class);
+    ByteBuffer openBlocks = new OpenBlocks("app0", "exec1",
+      new String[] { "shuffle_0_0_0", "shuffle_0_0_1" })
+      .toByteBuffer();
+    handler.setMemWaterMark(5);
+    handler.receive(client, openBlocks, callback);
+
+    ArgumentCaptor<ByteBuffer> response = ArgumentCaptor.forClass(ByteBuffer.class);
+    verify(callback, times(1)).onSuccess(response.capture());
+    verify(callback, never()).onFailure(any());
+
+    assertTrue(BlockTransferMessage.Decoder.fromByteBuffer(response.getValue()) instanceof
+      OpenBlocksFailed);
   }
 }

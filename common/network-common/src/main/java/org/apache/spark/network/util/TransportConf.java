@@ -257,4 +257,31 @@ public class TransportConf {
     return CryptoUtils.toCryptoConf("spark.network.crypto.config.", conf.getAll());
   }
 
+  /**
+   * When memory usage of Netty is above this water mark, it's regarded as memory shortage.
+   */
+  public Long nettyMemWaterMark() {
+    return JavaUtils.byteStringAsBytes(conf.get("spark.network.netty.memCostWaterMark", "1g"));
+  }
+
+  /**
+   * Timeout when "open blocks" on shuffle service, in milliseconds.
+   */
+  public long shuffleServiceTimeoutMs() {
+    return JavaUtils.timeStringAsMs(conf.get("spark.network.shuffleServiceTimeout", "30s"));
+  }
+
+  /**
+   * Retry times when "open blocks" on shuffle service.
+   */
+  public int shuffleServiceMaxTries() {
+    return conf.getInt("spark.network.shuffleServiceMaxTries", 5);
+  }
+
+  /**
+   * Wait time when retry the request to "open blocks" on shuffle service.
+   */
+  public long openBlocksWaitTimeMs() {
+    return JavaUtils.timeStringAsMs(conf.get("spark.network.openBlocksWait", "3s"));
+  }
 }

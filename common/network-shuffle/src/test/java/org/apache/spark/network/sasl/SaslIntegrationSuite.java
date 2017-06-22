@@ -172,7 +172,12 @@ public class SaslIntegrationSuite {
     // Start a new server with the correct RPC handler to serve block data.
     ExternalShuffleBlockResolver blockResolver = mock(ExternalShuffleBlockResolver.class);
     ExternalShuffleBlockHandler blockHandler = new ExternalShuffleBlockHandler(
-      new OneForOneStreamManager(), blockResolver);
+      new OneForOneStreamManager(), blockResolver, new ExternalShuffleBlockHandler.MemoryUsage() {
+      @Override
+      public long getMemoryUsage() {
+        return 0;
+      }
+    }, 1);
     TransportServerBootstrap bootstrap = new SaslServerBootstrap(conf, secretKeyHolder);
     TransportContext blockServerContext = new TransportContext(conf, blockHandler);
     TransportServer blockServer = blockServerContext.createServer(Arrays.asList(bootstrap));

@@ -58,21 +58,27 @@ public class ExternalShuffleBlockHandler extends RpcHandler {
   final ExternalShuffleBlockResolver blockManager;
   private final OneForOneStreamManager streamManager;
   private final ShuffleMetrics metrics;
+  private final MemoryUsage memoryUsage;
+  private long memWaterMark;
 
-  public ExternalShuffleBlockHandler(TransportConf conf, File registeredExecutorFile)
-    throws IOException {
+  public ExternalShuffleBlockHandler(TransportConf conf, File registeredExecutorFile,
+    MemoryUsage memoryUsage, long memWaterMark) throws IOException {
     this(new OneForOneStreamManager(),
-      new ExternalShuffleBlockResolver(conf, registeredExecutorFile));
+      new ExternalShuffleBlockResolver(conf, registeredExecutorFile), memoryUsage, memWaterMark);
   }
 
   /** Enables mocking out the StreamManager and BlockManager. */
   @VisibleForTesting
   public ExternalShuffleBlockHandler(
       OneForOneStreamManager streamManager,
-      ExternalShuffleBlockResolver blockManager) {
+      ExternalShuffleBlockResolver blockManager,
+      MemoryUsage memoryUsage,
+      long memWaterMark) {
     this.metrics = new ShuffleMetrics();
     this.streamManager = streamManager;
     this.blockManager = blockManager;
+    this.memoryUsage = memoryUsage;
+    this.memWaterMark = memWaterMark;
   }
 
   @Override
@@ -90,16 +96,28 @@ public class ExternalShuffleBlockHandler extends RpcHandler {
       try {
         OpenBlocks msg = (OpenBlocks) msgObj;
         checkAuth(client, msg.appId);
-        long streamId = streamManager.registerStream(client.getClientId(),
-          new ManagedBufferIterator(msg.appId, msg.execId, msg.blockIds));
-        if (logger.isTraceEnabled()) {
-          logger.trace("Registered streamId {} with {} buffers for client {} from host {}",
-                       streamId,
-                       msg.blockIds.length,
-                       client.getClientId(),
-                       getRemoteAddress(client.getChannel()));
+        // Return OpenBlocksFailed when memory usage is above the water mark.
+        long usage = memoryUsage.getMemoryUsage();
+        if (usage > memWaterMark) {
+          logger.warn("Memory usage({}) is above water mark({}), rejecting 'open blocks' request " +
+            "from client({}, {}).", usage, memWaterMark, client.getClientId(),
+            client.getSocketAddress());
+          callback.onSuccess(new OpenBlocksFailed(1).toByteBuffer());
+        } else {
+          logger.warn("Memory usage({}) is under water mark({}), accepting 'open blocks' request " +
+            "from client({}, {}).", usage, memWaterMark, client.getClientId(),
+            client.getSocketAddress());
+          long streamId = streamManager.registerStream(client.getClientId(),
+            new ManagedBufferIterator(msg.appId, msg.execId, msg.blockIds));
+          if (logger.isTraceEnabled()) {
+            logger.trace("Registered streamId {} with {} buffers for client {} from host {}",
+              streamId,
+              msg.blockIds.length,
+              client.getClientId(),
+              getRemoteAddress(client.getChannel()));
+          }
+          callback.onSuccess(new StreamHandle(streamId, msg.blockIds.length).toByteBuffer());
         }
-        callback.onSuccess(new StreamHandle(streamId, msg.blockIds.length).toByteBuffer());
       } finally {
         responseDelayContext.stop();
       }
@@ -161,6 +179,11 @@ public class ExternalShuffleBlockHandler extends RpcHandler {
       throw new SecurityException(String.format(
         "Client for %s not authorized for application %s.", client.getClientId(), appId));
     }
+  }
+
+  @VisibleForTesting
+  void setMemWaterMark(long memWaterMark) {
+    this.memWaterMark = memWaterMark;
   }
 
   /**
@@ -237,4 +260,10 @@ public class ExternalShuffleBlockHandler extends RpcHandler {
     }
   }
 
+  /**
+   * An interface to tell the current memory usage.
+   */
+  public interface MemoryUsage {
+    long getMemoryUsage();
+  }
 }

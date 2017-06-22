@@ -54,13 +54,16 @@ class ExternalShuffleService(sparkConf: SparkConf, securityManager: SecurityMana
   private val transportContext: TransportContext =
     new TransportContext(transportConf, blockHandler, true)
 
-  private var server: TransportServer = _
+  protected var server: TransportServer = _
 
   private val shuffleServiceSource = new ExternalShuffleServiceSource(blockHandler)
 
   /** Create a new shuffle block handler. Factored out for subclasses to override. */
   protected def newShuffleBlockHandler(conf: TransportConf): ExternalShuffleBlockHandler = {
-    new ExternalShuffleBlockHandler(conf, null)
+    new ExternalShuffleBlockHandler(conf, null, new ExternalShuffleBlockHandler.MemoryUsage {
+      // Return memory usage as the memory used by Netty.
+      override def getMemoryUsage(): Long = server.nettyMemoryUsage()
+    }, conf.nettyMemWaterMark())
   }
 
   /** Starts the external shuffle service if the user has configured us to. */
