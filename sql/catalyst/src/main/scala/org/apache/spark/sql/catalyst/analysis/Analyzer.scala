@@ -1165,10 +1165,13 @@ class Analyzer(
       case q: LogicalPlan =>
         q transformExpressions {
           case u if !u.childrenResolved => u // Skip until children are resolved.
-          case u: UnresolvedAttribute if resolver(u.name, VirtualColumn.hiveGroupingIdName) =>
-            withPosition(u) {
-              Alias(GroupingID(Nil), VirtualColumn.hiveGroupingIdName)()
+          case u: UnresolvedAttribute
+              if (q.isInstanceOf[GroupingSets] || q.isInstanceOf[Aggregate]) &&
+              resolver(u.name, VirtualColumn.groupingIdName) =>
+            val ret = withPosition(u) {
+              Alias(GroupingID(Nil), VirtualColumn.groupingIdName)()
             }
+            ret
           case u @ UnresolvedGenerator(name, children) =>
             withPosition(u) {
               catalog.lookupFunction(name, children) match {
