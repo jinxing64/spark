@@ -429,8 +429,8 @@ class FileSuite extends SparkFunSuite with LocalSparkContext {
     val inputPaths =
       sc.hadoopFile(outDir, classOf[TextInputFormat], classOf[LongWritable], classOf[Text])
         .asInstanceOf[HadoopRDD[_, _]]
-        .mapPartitionsWithInputSplit { (split, part) =>
-          Iterator(split.asInstanceOf[FileSplit].getPath.toUri.getPath)
+        .mapPartitionsWithInputSplit { (splits, part) =>
+          splits.map(_.asInstanceOf[FileSplit].getPath.toUri.getPath).toIterator
         }.collect()
     val outPathOne = new Path(outDir, "part-00000").toUri.getPath
     val outPathTwo = new Path(outDir, "part-00001").toUri.getPath

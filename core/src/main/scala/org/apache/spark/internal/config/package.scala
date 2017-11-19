@@ -300,6 +300,13 @@ package object config {
       .booleanConf
       .createWithDefault(false)
 
+  private[spark] val HADOOP_RDD_MAX_PARTITIONS =
+    ConfigBuilder("spark.hadoopRDD.maxPartitions")
+      .internal()
+      .doc("The max partitions that a HadoopRDD/NewHadoopRDD can have.")
+      .intConf
+      .createWithDefault(Int.MaxValue)
+
   private[spark] val SECRET_REDACTION_PATTERN =
     ConfigBuilder("spark.redaction.regex")
       .doc("Regex to decide which Spark configuration properties and environment variables in " +

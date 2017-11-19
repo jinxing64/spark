@@ -1104,7 +1104,8 @@ class RDDSuite extends SparkFunSuite with SharedSparkContext {
     coalescedHadoopRDD.partitions.foreach(partition => {
       var splitSizeSum = 0L
       partition.asInstanceOf[CoalescedRDDPartition].parents.foreach(partition => {
-        val split = partition.asInstanceOf[HadoopPartition].inputSplit.value.asInstanceOf[FileSplit]
+        val split = partition.asInstanceOf[HadoopPartition].inputSplits.value.head
+          .asInstanceOf[FileSplit]
         splitSizeSum += split.getLength
         totalPartitionCount += 1
       })
@@ -1170,8 +1171,8 @@ class SizeBasedCoalescer(val maxSize: Int) extends PartitionCoalescer with Seria
 
     // sort partitions based on the size of the corresponding input splits
     partitions.sortWith((partition1, partition2) => {
-      val partition1Size = partition1.asInstanceOf[HadoopPartition].inputSplit.value.getLength
-      val partition2Size = partition2.asInstanceOf[HadoopPartition].inputSplit.value.getLength
+      val partition1Size = partition1.asInstanceOf[HadoopPartition].inputSplits.value.head.getLength
+      val partition2Size = partition2.asInstanceOf[HadoopPartition].inputSplits.value.head.getLength
       partition1Size < partition2Size
     })
 
@@ -1190,7 +1191,7 @@ class SizeBasedCoalescer(val maxSize: Int) extends PartitionCoalescer with Seria
     while (index < partitions.size) {
       val partition = partitions(index)
       val fileSplit =
-        partition.asInstanceOf[HadoopPartition].inputSplit.value.asInstanceOf[FileSplit]
+        partition.asInstanceOf[HadoopPartition].inputSplits.value.head.asInstanceOf[FileSplit]
       val splitSize = fileSplit.getLength
       if (currentSum + splitSize < maxSize) {
         addPartition(partition, splitSize)
