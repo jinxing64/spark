@@ -18,6 +18,7 @@
 package org.apache.spark.sql.catalyst.expressions
 
 import scala.math._
+import scala.util.Sorting
 
 import org.apache.spark.{SparkConf, SparkFunSuite}
 import org.apache.spark.serializer.KryoSerializer
@@ -25,6 +26,7 @@ import org.apache.spark.sql.{RandomDataGenerator, Row}
 import org.apache.spark.sql.catalyst.{CatalystTypeConverters, InternalRow}
 import org.apache.spark.sql.catalyst.dsl.expressions._
 import org.apache.spark.sql.catalyst.expressions.codegen.{CodegenContext, GenerateOrdering, LazilyGeneratedOrdering}
+import org.apache.spark.sql.catalyst.util.{ArrayBasedMapData, GenericArrayData}
 import org.apache.spark.sql.types._
 
 class OrderingSuite extends SparkFunSuite with ExpressionEvalHelper {
@@ -36,6 +38,57 @@ class OrderingSuite extends SparkFunSuite with ExpressionEvalHelper {
       val toCatalyst = CatalystTypeConverters.createToCatalystConverter(rowType)
       val rowA = toCatalyst(Row(a)).asInstanceOf[InternalRow]
       val rowB = toCatalyst(Row(b)).asInstanceOf[InternalRow]
+      Seq(Ascending, Descending).foreach { direction =>
+        val sortOrder = direction match {
+          case Ascending => BoundReference(0, dataType, nullable = true).asc
+          case Descending => BoundReference(0, dataType, nullable = true).desc
+        }
+        val expectedCompareResult = direction match {
+          case Ascending => signum(expected)
+          case Descending => -1 * signum(expected)
+        }
+
+        val kryo = new KryoSerializer(new SparkConf).newInstance()
+        val intOrdering = new InterpretedOrdering(sortOrder :: Nil)
+        val genOrdering = new LazilyGeneratedOrdering(sortOrder :: Nil)
+        val kryoIntOrdering = kryo.deserialize[InterpretedOrdering](kryo.serialize(intOrdering))
+        val kryoGenOrdering = kryo.deserialize[LazilyGeneratedOrdering](kryo.serialize(genOrdering))
+
+        Seq(intOrdering, genOrdering, kryoIntOrdering, kryoGenOrdering).foreach { ordering =>
+          assert(ordering.compare(rowA, rowA) === 0)
+          assert(ordering.compare(rowB, rowB) === 0)
+          assert(signum(ordering.compare(rowA, rowB)) === expectedCompareResult)
+          assert(signum(ordering.compare(rowB, rowA)) === -1 * expectedCompareResult)
+        }
+      }
+    }
+  }
+
+  def compareMaps(a: Map[Int, Int], b: Map[Int, Int], expected: Int): Unit = {
+    test(s"compare two maps: a = $a, b = $b") {
+      val dataType = MapType(IntegerType, IntegerType)
+      val rowType = StructType(StructField("map", dataType, nullable = true) :: Nil)
+      val sortedA = a.toArray.sortWith {
+        case (entry0, entry1) =>
+          if (dataType.interpretedKeyOrdering.compare(entry0._1, entry1._1) == 1) { true }
+          else { false }
+      }
+      val keysA = new GenericArrayData(sortedA.map(_._1))
+      val valuesA = new GenericArrayData(sortedA.map(_._2))
+      val mapDataA = new ArrayBasedMapData(keysA, valuesA)
+      val rowA = new SpecificInternalRow(Seq(dataType))
+      rowA.update(0, mapDataA)
+
+      val sortedB = a.toArray.sortWith {
+        case (entry0, entry1) =>
+          if (dataType.interpretedKeyOrdering.compare(entry0._1, entry1._1) == 1) { true }
+          else { false }
+      }
+      val keysB = new GenericArrayData(sortedB.map(_._1))
+      val valuesB = new GenericArrayData(sortedB.map(_._2))
+      val mapDataB = new ArrayBasedMapData(keysB, valuesB)
+      val rowB = new SpecificInternalRow(Seq(dataType))
+      rowB.update(0, mapDataA)
       Seq(Ascending, Descending).foreach { direction =>
         val sortOrder = direction match {
           case Ascending => BoundReference(0, dataType, nullable = true).asc
@@ -85,6 +138,14 @@ class OrderingSuite extends SparkFunSuite with ExpressionEvalHelper {
   compareArrays(Seq[Any](null, 1), Seq[Any](1, 1), -1)
   compareArrays(Seq[Any](1, null, 1), Seq[Any](1, null, 1), 0)
   compareArrays(Seq[Any](1, null, 1), Seq[Any](1, null, 2), -1)
+
+  // Comparing maps
+  compareMaps(null, Map((1, 2)), -1)
+  compareMaps(Map((1, 2)), Map((1, 2), (0, 4)), 1)
+  compareMaps(Map((1, 2)), Map((1, 2), (3, 4)), -1)
+  compareMaps(Map((1, 2), (3, 4)), Map((1, 2), (3, 5)), -1)
+  compareMaps(Map((1, 2), (3, 4)), Map((1, 2), (3, null)), 1)
+  compareMaps(Map((1, 2), (3, 4)), Map((1, 2), (4, 4)), -1)
 
   // Test GenerateOrdering for all common types. For each type, we construct random input rows that
   // contain two columns of that type, then for pairs of randomly-generated rows we check that

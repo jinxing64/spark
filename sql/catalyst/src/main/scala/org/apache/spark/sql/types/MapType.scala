@@ -21,6 +21,8 @@ import org.json4s.JsonAST.JValue
 import org.json4s.JsonDSL._
 
 import org.apache.spark.annotation.InterfaceStability
+import org.apache.spark.sql.catalyst.util.{MapData, TypeUtils}
+
 
 /**
  * The data type for Maps. Keys in a map are not allowed to have `null` values.
@@ -30,12 +32,20 @@ import org.apache.spark.annotation.InterfaceStability
  * @param keyType The data type of map keys.
  * @param valueType The data type of map values.
  * @param valueContainsNull Indicates if map values have `null` values.
+ * @param ordered Indicates if two maps can be compared. Note that it makes sense to compare two
+ *                maps only when they are themselves "ordered", i.e. entries of the map are sorted.
+ *                This parameter is used by internal when doing ordering operation, e.g. sort
+ *                values of `MapType`. Users should not modify it.
  */
 @InterfaceStability.Stable
 case class MapType(
   keyType: DataType,
   valueType: DataType,
-  valueContainsNull: Boolean) extends DataType {
+  valueContainsNull: Boolean,
+  ordered: Boolean = false) extends DataType {
+
+  def this(keyType: DataType, valueType: DataType, valueContainsNull: Boolean) =
+    this(keyType, valueType, valueContainsNull)
 
   /** No-arg constructor for kryo. */
   def this() = this(null, null, false)
@@ -72,6 +82,76 @@ case class MapType(
 
   override private[spark] def existsRecursively(f: (DataType) => Boolean): Boolean = {
     f(this) || keyType.existsRecursively(f) || valueType.existsRecursively(f)
+  }
+
+
+  // This is used to sort the entries of a map.
+  @transient
+  private[sql] lazy val interpretedKeyOrdering: Ordering[Any] =
+    TypeUtils.getInterpretedOrdering(keyType)
+
+  @transient
+  private[this] lazy val interpretedValueOrdering: Ordering[Any] =
+    TypeUtils.getInterpretedOrdering(valueType)
+
+  @transient
+  private[sql] lazy val interpretedOrdering: Ordering[MapData] = new Ordering[MapData] {
+    assert(ordered)
+    val keyOrdering = interpretedKeyOrdering
+    val valueOrdering = interpretedValueOrdering
+
+    // The approach to compare (left: MapData, right: MapData):
+    // 1. The precondition is that entries inside `left` and `right` are already sorted themselves;
+    // 2. Compare entries from `left` and `right`, say entryA(keyA, valueA) is from `left` and
+    //    entryB(keyB, valueB) is from `right`:
+    //    a. entryA is bigger than entryB if keyA is bigger than keyB and vice versa;
+    //    b. entryA is bigger than entryB if keyA equals to keyB and valueA is bigger than
+    //       valueB and vice versa;
+    // 3. If entries from the head equals to each other between `left` and `right`, the `MapData`
+    //    with more entries is bigger.
+    def compare(left: MapData, right: MapData): Int = {
+      val leftKeys = left.keyArray()
+      val leftValues = left.valueArray()
+      val rightKeys = right.keyArray()
+      val rightValues = right.valueArray()
+      val minLength = scala.math.min(leftKeys.numElements(), rightKeys.numElements())
+      var i = 0
+      while (i < minLength) {
+        val keyComp = keyOrdering.compare(leftKeys.get(i, keyType), rightKeys.get(i, keyType))
+        if (keyComp != 0) {
+          return keyComp
+        }
+
+        val isNullLeft = leftValues.isNullAt(i)
+        val isNullRight = rightValues.isNullAt(i)
+        if (isNullLeft && isNullRight) {
+          // Do nothing.
+        } else if (isNullLeft) {
+          return -1
+        } else if (isNullRight) {
+          return 1
+        } else {
+          val comp = valueOrdering.compare(
+            leftValues.get(i, valueType), rightValues.get(i, valueType))
+          if (comp != 0) {
+            return comp
+          }
+        }
+        i += 1
+      }
+      val diff = left.numElements() - right.numElements()
+      if (diff < 0) {
+        -1
+      } else if (diff > 0) {
+        1
+      } else {
+        0
+      }
+    }
+  }
+
+  override def toString: String = {
+    s"MapType(${keyType.toString},${valueType.toString},${valueContainsNull.toString})"
   }
 }
 
